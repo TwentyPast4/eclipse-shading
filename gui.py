@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Button, TextBox
 from matplotlib.ticker import MultipleLocator
 
-from eclipse_projector import simulate
+from eclipse_projector import plane_basis, simulate
+from stl_export import export_pinhole_plate_stl
 
 
 # -----------------------------
@@ -168,6 +169,8 @@ status_text = fig.text(
 # Current displayed image and physical background size
 image_handle = None
 current_background_size = None
+current_hole_positions = None
+current_hole_diameter = None
 
 
 # -----------------------------
@@ -180,6 +183,8 @@ def update(_=None):
     global current_background_size
     global pending_simulation_args
     global update_num
+    global current_hole_positions
+    global current_hole_diameter
 
     if pending_simulation_args is None:
         return
@@ -200,6 +205,15 @@ def update(_=None):
         )
         fig.canvas.draw_idle()
         return
+
+    projector_x, projector_y = plane_basis(
+        simulation_args["sun_direction"]
+    )
+    current_hole_positions = np.column_stack((
+        holes @ projector_x,
+        holes @ projector_y,
+    ))
+    current_hole_diameter = simulation_args["hole_size_mm"]
 
     bg_width = params["background_width"]
     bg_height = params["background_height"]
@@ -604,6 +618,71 @@ def reset_view(_):
 
 
 reset_view_button.on_clicked(reset_view)
+
+# -----------------------------
+# Pinhole plate export
+# -----------------------------
+
+export_ax = fig.add_axes([
+    0.62,
+    0.035,
+    0.09,
+    0.04,
+])
+
+export_button = Button(
+    export_ax,
+    "Export STL",
+)
+
+
+def export_holes(_):
+    if current_hole_positions is None or current_hole_diameter is None:
+        status_text.set_text("No pinhole plate is available to export.")
+        fig.canvas.draw_idle()
+        return
+
+    # Tkinter supplies a native save dialog without tying this action to a
+    # particular Matplotlib GUI backend.
+    from tkinter import Tk, filedialog
+
+    dialog_root = Tk()
+    dialog_root.withdraw()
+
+    try:
+        file_path = filedialog.asksaveasfilename(
+            parent=dialog_root,
+            title="Export pinhole plate",
+            defaultextension=".stl",
+            filetypes=(("STL files", "*.stl"), ("All files", "*.*")),
+            initialfile="pinhole_plate.stl",
+        )
+    finally:
+        dialog_root.destroy()
+
+    if not file_path:
+        return
+
+    try:
+        triangle_count = export_pinhole_plate_stl(
+            file_path=file_path,
+            hole_positions_mm=current_hole_positions,
+            plate_size_mm=current_background_size,
+            hole_diameter_mm=current_hole_diameter,
+            thickness_mm=5.0,
+        )
+    except (OSError, ValueError) as error:
+        status_text.set_text(f"Export error: {error}")
+    else:
+        status_text.set_text(
+            f"Exported {len(current_hole_positions)} holes "
+            f"({triangle_count} triangles) to {file_path}"
+        )
+
+    fig.canvas.draw_idle()
+
+
+export_button.on_clicked(export_holes)
 
 # -----------------------------
 # Start UI
