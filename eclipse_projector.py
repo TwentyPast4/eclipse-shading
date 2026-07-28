@@ -318,7 +318,9 @@ def simulate(
 
         output_px_per_mm,
 
-        clip_brightness=1.0
+        clip_brightness=1.0,
+        letter_spacing_percent=0.0,
+        line_spacing_percent=20.0,
 ):
 
     sun_direction = normalize(
@@ -342,7 +344,9 @@ def simulate(
         text_size_mm[0],
         text_size_mm[1],
         hole_spacing_x_mm,
-        hole_spacing_y_mm
+        hole_spacing_y_mm,
+        letter_spacing_percent,
+        line_spacing_percent,
     )
 
     holes = []

@@ -16,12 +16,12 @@ params = {
     "text": "IZ A TEST?",
 
     # Physical pinhole pattern
-    "text_width": 800.0,
-    "text_height": 180.0,
+    "text_width": 420.0,
+    "text_height": 260.0,
 
     # White background sheet/wall
-    "background_width": 900.0,
-    "background_height": 300.0,
+    "background_width": 500.0,
+    "background_height": 360.0,
 
     # Sun and wall geometry
     "sun_azimuth": 0.0,
@@ -31,7 +31,9 @@ params = {
     # Pinhole grid
     "hole_spacing_x": 8.0,
     "hole_spacing_y": 14.0,
-    "hole_size": 2.0,
+    "letter_spacing": 0.0,
+    "line_spacing": 20.0,
+    "hole_size": 2.75,
 
     # Projection
     "projection_distance": 3000.0,
@@ -95,6 +97,8 @@ def queue_simulation():
 
         "hole_spacing_x_mm": params["hole_spacing_x"],
         "hole_spacing_y_mm": params["hole_spacing_y"],
+        "letter_spacing_percent": params["letter_spacing"],
+        "line_spacing_percent": params["line_spacing"],
 
         "projection_distance_mm": params["projection_distance"],
 
@@ -346,14 +350,14 @@ update_timer.add_callback(update)
 text_box_ax = fig.add_axes([
     0.77,
     0.925,
-    0.20,
+    0.135,
     0.035,
 ])
 
 text_box = TextBox(
     text_box_ax,
     "Text ",
-    initial=params["text"]
+    initial=params["text"].replace("\n", "\\n"),
 )
 
 # Work around a Matplotlib bug where TextBox._resize is wrapped as a
@@ -375,7 +379,7 @@ for callback_id, callback_ref in list(resize_callbacks.items()):
 
 
 def update_text(value):
-    cleaned = value.strip()
+    cleaned = value.replace("\\n", "\n").strip()
 
     if cleaned:
         params["text"] = cleaned
@@ -383,6 +387,78 @@ def update_text(value):
 
 
 text_box.on_submit(update_text)
+
+multiline_text_ax = fig.add_axes([
+    0.915,
+    0.925,
+    0.055,
+    0.035,
+])
+
+multiline_text_button = Button(
+    multiline_text_ax,
+    "Lines…",
+)
+
+
+def open_multiline_text_editor(parent):
+    from tkinter import Button as TkButton
+    from tkinter import END, Frame, Text, Toplevel
+
+    dialog = Toplevel(parent)
+    dialog.title("Edit multiline text")
+    dialog.resizable(True, True)
+
+    editor = Text(
+        dialog,
+        width=50,
+        height=10,
+        wrap="none",
+        font=("TkDefaultFont", 11),
+    )
+    editor.pack(padx=12, pady=(12, 8), fill="both", expand=True)
+    editor.insert("1.0", params["text"])
+
+    button_frame = Frame(dialog)
+    button_frame.pack(padx=12, pady=(0, 12), fill="x")
+
+    def close_dialog():
+        dialog.destroy()
+
+    def apply_text():
+        cleaned = editor.get("1.0", END).strip()
+
+        if cleaned:
+            params["text"] = cleaned
+            text_box.set_val(cleaned.replace("\n", "\\n"))
+            queue_simulation()
+            close_dialog()
+
+    TkButton(
+        button_frame,
+        text="Cancel",
+        command=close_dialog,
+    ).pack(side="right")
+    TkButton(
+        button_frame,
+        text="Apply",
+        command=apply_text,
+    ).pack(side="right", padx=(0, 8))
+
+    dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+    dialog.transient(parent)
+    dialog.lift()
+    dialog.after_idle(editor.focus_set)
+
+
+def edit_multiline_text(_):
+    # Matplotlib's Tk button holds a mouse grab until its callback returns.
+    # Open the child window on the next Tk event-loop iteration.
+    parent = fig.canvas.manager.window
+    parent.after_idle(lambda: open_multiline_text_editor(parent))
+
+
+multiline_text_button.on_clicked(edit_multiline_text)
 
 
 # -----------------------------
@@ -433,7 +509,7 @@ slider_specs = [
     (
         "sun_elevation",
         "Sun elevation (°)",
-        1.0,
+        0.0,
         90.0,
         params["sun_elevation"],
         0.5,
@@ -461,6 +537,22 @@ slider_specs = [
         40.0,
         params["hole_spacing_y"],
         0.25,
+    ),
+    (
+        "letter_spacing",
+        "Letter spacing (%)",
+        -20.0,
+        100.0,
+        params["letter_spacing"],
+        1.0,
+    ),
+    (
+        "line_spacing",
+        "Line spacing (%)",
+        -50.0,
+        200.0,
+        params["line_spacing"],
+        1.0,
     ),
     (
         "projection_distance",
@@ -517,7 +609,7 @@ panel_left = 0.77
 panel_width = 0.20
 
 slider_top = 0.865
-slider_step = 0.061
+slider_step = 0.050
 slider_height = 0.025
 
 
@@ -557,7 +649,64 @@ for index, (
     )
 
     slider.on_changed(make_callback(key))
+    slider.valtext.set_picker(True)
+    slider.valtext.set_bbox({
+        "facecolor": "white",
+        "edgecolor": "0.75",
+        "boxstyle": "round,pad=0.18",
+        "linewidth": 0.6,
+    })
     sliders[key] = slider
+
+
+numeric_entry_pending = False
+
+
+def prompt_for_slider_value(slider):
+    global numeric_entry_pending
+
+    from tkinter import simpledialog
+
+    parent = fig.canvas.manager.window
+    label = slider.label.get_text()
+
+    try:
+        value = simpledialog.askfloat(
+            title=f"Set {label}",
+            prompt=(
+                f"{label}\n"
+                f"Range: {slider.valmin:g} to {slider.valmax:g}"
+            ),
+            initialvalue=slider.val,
+            minvalue=slider.valmin,
+            maxvalue=slider.valmax,
+            parent=parent,
+        )
+
+        if value is not None:
+            slider.set_val(value)
+    finally:
+        numeric_entry_pending = False
+
+
+def open_slider_value_editor(event):
+    global numeric_entry_pending
+
+    if numeric_entry_pending:
+        return
+
+    for slider in sliders.values():
+        if event.artist is slider.valtext:
+            numeric_entry_pending = True
+            parent = fig.canvas.manager.window
+            parent.after_idle(
+                lambda selected_slider=slider:
+                prompt_for_slider_value(selected_slider)
+            )
+            return
+
+
+fig.canvas.mpl_connect("pick_event", open_slider_value_editor)
 
 
 # -----------------------------
