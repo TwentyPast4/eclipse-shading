@@ -4,6 +4,7 @@ from matplotlib.widgets import Slider, Button, TextBox
 from matplotlib.ticker import MultipleLocator
 
 from eclipse_projector import plane_basis, simulate
+from pdf_export import export_pinhole_pattern_pdf
 from stl_export import export_pinhole_plate_stl
 
 
@@ -560,15 +561,33 @@ for index, (
 
 
 # -----------------------------
-# Reset button
+# Bottom buttons
 # -----------------------------
 
-reset_ax = fig.add_axes([
-    0.84,
-    0.035,
-    0.09,
-    0.04,
-])
+bottom_button_width = 0.09
+bottom_button_height = 0.04
+bottom_button_gap = 0.01
+bottom_button_right_margin = 0.03
+bottom_button_bottom_margin = 0.015
+
+
+def make_bottom_button_axes(index_from_right):
+    left = (
+        1.0
+        - bottom_button_right_margin
+        - bottom_button_width
+        - index_from_right
+        * (bottom_button_width + bottom_button_gap)
+    )
+    return fig.add_axes([
+        left,
+        bottom_button_bottom_margin,
+        bottom_button_width,
+        bottom_button_height,
+    ])
+
+
+reset_ax = make_bottom_button_axes(0)
 
 reset_button = Button(
     reset_ax,
@@ -585,12 +604,7 @@ def reset(_):
 
 reset_button.on_clicked(reset)
 
-reset_view_ax = fig.add_axes([
-    0.73,
-    0.035,
-    0.09,
-    0.04,
-])
+reset_view_ax = make_bottom_button_axes(1)
 
 reset_view_button = Button(
     reset_view_ax,
@@ -623,12 +637,7 @@ reset_view_button.on_clicked(reset_view)
 # Pinhole plate export
 # -----------------------------
 
-export_ax = fig.add_axes([
-    0.62,
-    0.035,
-    0.09,
-    0.04,
-])
+export_ax = make_bottom_button_axes(2)
 
 export_button = Button(
     export_ax,
@@ -683,6 +692,60 @@ def export_holes(_):
 
 
 export_button.on_clicked(export_holes)
+
+export_pdf_ax = make_bottom_button_axes(3)
+
+export_pdf_button = Button(
+    export_pdf_ax,
+    "Export PDF",
+)
+
+
+def export_pdf(_):
+    if current_hole_positions is None or current_hole_diameter is None:
+        status_text.set_text("No pinhole pattern is available to export.")
+        fig.canvas.draw_idle()
+        return
+
+    from tkinter import Tk, filedialog
+
+    dialog_root = Tk()
+    dialog_root.withdraw()
+
+    try:
+        file_path = filedialog.asksaveasfilename(
+            parent=dialog_root,
+            title="Export pinhole pattern",
+            defaultextension=".pdf",
+            filetypes=(("PDF files", "*.pdf"), ("All files", "*.*")),
+            initialfile="pinhole_pattern.pdf",
+        )
+    finally:
+        dialog_root.destroy()
+
+    if not file_path:
+        return
+
+    try:
+        hole_count = export_pinhole_pattern_pdf(
+            file_path=file_path,
+            hole_positions_mm=current_hole_positions,
+            canvas_size_mm=current_background_size,
+            hole_diameter_mm=current_hole_diameter,
+        )
+    except (OSError, ValueError) as error:
+        status_text.set_text(f"Export error: {error}")
+    else:
+        width, height = current_background_size
+        status_text.set_text(
+            f"Exported {hole_count} black holes to {file_path} "
+            f"({width:g} x {height:g} mm)"
+        )
+
+    fig.canvas.draw_idle()
+
+
+export_pdf_button.on_clicked(export_pdf)
 
 # -----------------------------
 # Start UI
